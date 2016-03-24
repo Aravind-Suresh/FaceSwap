@@ -125,7 +125,9 @@ def swap_faces(src, dst):
 
 def generateOutput(img):
     cv2.imwrite('temp.jpg', img)
-    return cv2.imread('temp.jpg')
+    out = cv2.imread('temp.jpg')
+    os.remove('temp.jpg')
+    return out
 
 # TODO: Modify this method to get a better face contour mask
 def get_face_contour_mask(rect_shape, pt_tl, shape):
