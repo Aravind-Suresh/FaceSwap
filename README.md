@@ -1,2 +1,2 @@
 # FaceSwap
-A repository containing source codes for swapping faces in images.
+A repository which contains source codes for Swapping faces in images.
