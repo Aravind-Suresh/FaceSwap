@@ -127,6 +127,14 @@ def generateOutput(img):
     cv2.imwrite('temp.jpg', img)
     return cv2.imread('temp.jpg')
 
+def get_face_contour_mask(rect_shape, pt_tl, shape):
+    mask = np.zeros(rect_shape)
+    lm = np.matrix([[pt.x - pt_tl[0], pt.y - pt_tl[1]] for pt in shape.parts()])
+    hull = cv2.convexHull(lm)
+    cv2.fillConvexPoly(mask, hull, color = 1)
+    return np.uint8(mask)
+    # return np.array([np.uint8(mask), np.uint8(mask), np.uint8(mask)]).transpose(1, 2, 0)
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-i', '--source_image', help='Source image ( Features are extracted )', required=True)
@@ -153,23 +161,32 @@ if __name__ == '__main__':
             else:
                 #TODO: Take the face contour from frame and replace with swapped face
                 out = generateOutput(out)
-                scale = (1.0*frame.shape[:2]/src.shape[:2])
-                out_r = cv2.resize(out, None, scale[1], scale[0])
+                rect_shape = (rect.bottom() - rect.top(), rect.right() - rect.left())
+                scale = (1.0*np.array(rect_shape)/np.array(src.shape[:2]))
+                out_r = cv2.resize(out, None, fx=scale[1], fy=scale[0])
 
-                face_contour_mask = get_face_contour_mask(rect, shape)
+                face_contour_mask = get_face_contour_mask(rect_shape, [rect.left(), rect.top()], shape)
 
-                frame_fg = np.zeros(frame.shape)
-                frame_bg = np.zeros(frame.shape)
+                output = np.zeros(frame.shape, dtype=frame.dtype)
 
-                frame_fg[rect.top():rect.bottom(), rect.left():rect.right()] = cv2.bitwise_and(out_r, face_contour_mask)
-                frame_bg[rect.top():rect.bottom(), rect.left():rect.right()] = cv2.bitwise_and(
-                    frame[rect.top():rect.bottom(), rect.left():rect.right()], 255 - face_contour_mask
+                cv2.imshow("out_r", out_r)
+                cv2.imshow("mask", 255*face_contour_mask)
+                face_contour_mask = 255*face_contour_mask
+
+                frame_fg = cv2.bitwise_and(out_r, out_r, mask=face_contour_mask)
+                frame_bg = cv2.bitwise_and(
+                    frame[rect.top():rect.bottom(), rect.left():rect.right()],
+                    frame[rect.top():rect.bottom(), rect.left():rect.right()],
+                    mask=(255 - face_contour_mask)
                     )
-                output = frame_fg + frame_bg
+                output[rect.top():rect.bottom(), rect.left():rect.right()] = frame_fg + frame_bg
+
                 cv2.imshow("Cam", output)
                 k = cv2.waitKey(1)
 
                 if k == 27:
+                    cv2.destroyAllWindows()
+                    cap.release()
                     break
     else:
         if args.target_image is None:
