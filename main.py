@@ -127,13 +127,13 @@ def generateOutput(img):
     cv2.imwrite('temp.jpg', img)
     return cv2.imread('temp.jpg')
 
+# TODO: Modify this method to get a better face contour mask
 def get_face_contour_mask(rect_shape, pt_tl, shape):
     mask = np.zeros(rect_shape)
     lm = np.matrix([[pt.x - pt_tl[0], pt.y - pt_tl[1]] for pt in shape.parts()])
     hull = cv2.convexHull(lm)
     cv2.fillConvexPoly(mask, hull, color = 1)
     return np.uint8(mask)
-    # return np.array([np.uint8(mask), np.uint8(mask), np.uint8(mask)]).transpose(1, 2, 0)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -159,7 +159,6 @@ if __name__ == '__main__':
             if out is None:
                 continue
             else:
-                #TODO: Take the face contour from frame and replace with swapped face
                 out = generateOutput(out)
                 rect_shape = (rect.bottom() - rect.top(), rect.right() - rect.left())
                 scale = (1.0*np.array(rect_shape)/np.array(src.shape[:2]))
