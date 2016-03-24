@@ -1,6 +1,6 @@
 import cv2
 import dlib
-import sys, argparse
+import os, sys, argparse
 import numpy as np
 
 BLUR_FRACTION = 0.6
@@ -94,9 +94,14 @@ def swap_faces(src, dst):
     dst_l = get_facial_landmarks(dst)
 
     if src_l is None or dst_l is None:
-        return None, None, None
+        return None, None, None, None
 
-    src_l, _, _ = src_l
+    src_l, rect_, shape_ = src_l
+    src = src[rect_.top():rect_.bottom(), rect_.left():rect_.right()]
+    src_l -= [rect_.left(), rect_.top()]
+
+    src_rect_shape = (rect_.bottom() - rect_.top(), rect_.right() - rect_.left())
+
     dst_l, rect, shape = dst_l
 
     tM = get_tm_opp(src_l[MATCH_POINTS_IDX], dst_l[MATCH_POINTS_IDX])
@@ -121,7 +126,7 @@ def swap_faces(src, dst):
     t2 = smooth_colors(src, dst_warp, src_l)
     cv2.imwrite("img.jpg", t1)
     t2 = t2*mask_t
-    return (t1 + t2), rect, shape
+    return (t1 + t2), rect, shape, src_rect_shape
 
 def generateOutput(img):
     cv2.imwrite('temp.jpg', img)
@@ -133,8 +138,12 @@ def generateOutput(img):
 def get_face_contour_mask(rect_shape, pt_tl, shape):
     mask = np.zeros(rect_shape)
     lm = np.matrix([[pt.x - pt_tl[0], pt.y - pt_tl[1]] for pt in shape.parts()])
-    hull = cv2.convexHull(lm)
-    cv2.fillConvexPoly(mask, hull, color = 1)
+    temp1 = RIGHT_EYE_BROW_IDX
+    temp1.reverse()
+    temp2 = LEFT_EYE_BROW_IDX
+    temp2.reverse()
+    hull = lm[JAW_IDX + temp2 + temp1]
+    cv2.drawContours(mask, [hull], 0, 255 , -1)
     return np.uint8(mask)
 
 if __name__ == '__main__':
@@ -156,23 +165,22 @@ if __name__ == '__main__':
         cap = cv2.VideoCapture(0)
         while(1):
             ret, frame = cap.read()
-            out, rect, shape = swap_faces(src, frame)
+            out, rect, shape, src_rect_shape = swap_faces(src, frame)
 
             if out is None:
                 continue
             else:
                 out = generateOutput(out)
                 rect_shape = (rect.bottom() - rect.top(), rect.right() - rect.left())
-                scale = (1.0*np.array(rect_shape)/np.array(src.shape[:2]))
+                scale = (1.0*np.array(rect_shape)/np.array(src_rect_shape))
                 out_r = cv2.resize(out, None, fx=scale[1], fy=scale[0])
 
                 face_contour_mask = get_face_contour_mask(rect_shape, [rect.left(), rect.top()], shape)
 
-                output = np.zeros(frame.shape, dtype=frame.dtype)
+                output = frame.copy()
 
                 cv2.imshow("out_r", out_r)
                 cv2.imshow("mask", 255*face_contour_mask)
-                face_contour_mask = 255*face_contour_mask
 
                 frame_fg = cv2.bitwise_and(out_r, out_r, mask=face_contour_mask)
                 frame_bg = cv2.bitwise_and(
@@ -195,7 +203,7 @@ if __name__ == '__main__':
             sys.exit()
         target_path = args.target_image
         dst = cv2.imread(target_path)
-        out, _, _ = swap_faces(src, dst)
+        out, _, _, _ = swap_faces(src, dst)
         cv2.imshow("Output", generateOutput(out))
         cv2.waitKey(0)
         cv2.destroyAllWindows()
