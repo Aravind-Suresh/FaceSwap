@@ -47,8 +47,6 @@ def get_face_mask(img, img_l):
     img = (cv2.GaussianBlur(img, (BLUR_AMOUNT, BLUR_AMOUNT), 0) > 0) * 1.0
     img = cv2.GaussianBlur(img, (BLUR_AMOUNT, BLUR_AMOUNT), 0)
 
-    cv2.imwrite("img.jpg", img)
-
     return img
 
 def smooth_colors(src, dst, src_l):
@@ -89,6 +87,9 @@ def get_tm_opp(pts1, pts2):
     return np.vstack([np.hstack((std_r * R,
         np.transpose(m2) - std_r * R * np.transpose(m1))), np.matrix([0.0, 0.0, 1.0])])
 
+def getRectShape(rect):
+    return (rect.bottom() - rect.top(), rect.right() - rect.left())
+
 def swap_faces(src, dst):
     src_l = get_facial_landmarks(src)
     dst_l = get_facial_landmarks(dst)
@@ -100,7 +101,7 @@ def swap_faces(src, dst):
     src = src[rect_.top():rect_.bottom(), rect_.left():rect_.right()]
     src_l -= [rect_.left(), rect_.top()]
 
-    src_rect_shape = (rect_.bottom() - rect_.top(), rect_.right() - rect_.left())
+    src_rect_shape = rect_
 
     dst_l, rect, shape = dst_l
 
@@ -124,7 +125,6 @@ def swap_faces(src, dst):
 
     t1 = src*(1.0 - mask_t)
     t2 = smooth_colors(src, dst_warp, src_l)
-    cv2.imwrite("img.jpg", t1)
     t2 = t2*mask_t
     return (t1 + t2), rect, shape, src_rect_shape
 
@@ -148,19 +148,22 @@ def get_face_contour_mask(rect_shape, pt_tl, shape):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('-i', '--source_image', help='Source image ( Features are extracted )', required=True)
+    parser.add_argument('-t', '--template_image', help='Template image ( Face template )', required=True)
     parser.add_argument('-p', '--predictor', help='Predictor', required=True)
-    parser.add_argument('-t', '--target_image', help='Target image ( Configuration is extracted )')
+    parser.add_argument('-i', '--input_image', help='Input image ( Features are extracted )')
     parser.add_argument('-v', '--video', help='Mode', action='store_true')
+    parser.add_argument('-o', '--output_image', help='Output image path')
     args = parser.parse_args()
 
-    data_path = args.source_image
+    data_path = args.template_image
     shape_predictor_path = args.predictor
 
     shape_predictor = dlib.shape_predictor(shape_predictor_path)
 
     src = cv2.imread(data_path)
+    out = src.copy()
 
+    # NOTE: Currently not working as expected
     if args.video:
         cap = cv2.VideoCapture(0)
         while(1):
@@ -172,7 +175,7 @@ if __name__ == '__main__':
             else:
                 out = generateOutput(out)
                 rect_shape = (rect.bottom() - rect.top(), rect.right() - rect.left())
-                scale = (1.0*np.array(rect_shape)/np.array(src_rect_shape))
+                scale = (1.0*np.array(rect_shape)/np.array(getRectShape(src_rect_shape)))
                 out_r = cv2.resize(out, None, fx=scale[1], fy=scale[0])
 
                 face_contour_mask = get_face_contour_mask(rect_shape, [rect.left(), rect.top()], shape)
@@ -198,12 +201,15 @@ if __name__ == '__main__':
                     cap.release()
                     break
     else:
-        if args.target_image is None:
+        if args.input_image is None:
             print "Target image path missing."
             sys.exit()
-        target_path = args.target_image
+        target_path = args.input_image
         dst = cv2.imread(target_path)
-        out, _, _, _ = swap_faces(src, dst)
-        cv2.imshow("Output", generateOutput(out))
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()
+        out_, _, _, rect = swap_faces(src, dst)
+        out[rect.top():rect.bottom(), rect.left():rect.right()] = generateOutput(out_)
+        # cv2.imshow("Output", out)
+        # cv2.waitKey(0)
+        # cv2.destroyAllWindows()
+        if args.output_image is not None:
+            cv2.imwrite(args.output_image, out)
