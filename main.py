@@ -90,43 +90,49 @@ def get_tm_opp(pts1, pts2):
 def getRectShape(rect):
     return (rect.bottom() - rect.top(), rect.right() - rect.left())
 
-def swap_faces(src, dst):
-    src_l = get_facial_landmarks(src)
-    dst_l = get_facial_landmarks(dst)
+def toRoi(rect):
+    return dlib.rectangle(0, 0, rect.right() - rect.left(), rect.bottom() - rect.top())
 
-    if src_l is None or dst_l is None:
-        return None, None, None, None
+def warp_image(img, tM, shape):
+    out = np.zeros(shape, dtype=img.dtype)
+    cv2.warpAffine(img,
+                   tM[:2],
+                   (shape[1], shape[0]),
+                   dst=out,
+                   borderMode=cv2.BORDER_TRANSPARENT,
+                   flags=cv2.WARP_INVERSE_MAP)
+    return out
 
-    src_l, rect_, shape_ = src_l
-    src = src[rect_.top():rect_.bottom(), rect_.left():rect_.right()]
-    src_l -= [rect_.left(), rect_.top()]
+def swap_faces(tmpl_, input_):
+    tmpl_fl = get_facial_landmarks(tmpl_)
+    input_fl = get_facial_landmarks(input_)
 
-    src_rect_shape = rect_
+    if tmpl_fl is None or input_fl is None:
+        return None
 
-    dst_l, rect, shape = dst_l
+    tmpl_fl = list(tmpl_fl)
+    input_fl = list(input_fl)
 
-    tM = get_tm_opp(src_l[MATCH_POINTS_IDX], dst_l[MATCH_POINTS_IDX])
+    # {tmpl, input}_fl : [ landmarks, rect, shape ]
 
-    mask = get_face_mask(dst, dst_l)
+    tmpl = tmpl_
 
-    mask_w = cv2.warpAffine(mask, tM[:2],
-                   (src.shape[1], src.shape[0]),
-                   dst = None,
-                   borderMode = cv2.BORDER_TRANSPARENT,
-                   flags = cv2.WARP_INVERSE_MAP)
+    input = input_[input_fl[1].top():input_fl[1].bottom(), input_fl[1].left():input_fl[1].right()]
+    input_fl[0] -= [input_fl[1].left(), input_fl[1].top()]
 
-    mask_t = np.max([get_face_mask(src, src_l), mask_w], axis = 0)
+    tM = get_tm_opp(tmpl_fl[0][MATCH_POINTS_IDX], input_fl[0][MATCH_POINTS_IDX])
+    mask = get_face_mask(input, input_fl[0])
+    mask_w = warp_image(mask, tM, tmpl.shape)
 
-    dst_warp = cv2.warpAffine(dst, tM[:2],
-                   (src.shape[1], src.shape[0]),
-                   dst = None,
-                   borderMode = cv2.BORDER_TRANSPARENT,
-                   flags = cv2.WARP_INVERSE_MAP)
+    mask_t = np.max([get_face_mask(tmpl, tmpl_fl[0]), mask_w], axis = 0)
 
-    t1 = src*(1.0 - mask_t)
-    t2 = smooth_colors(src, dst_warp, src_l)
+    input_warp = warp_image(input, tM, tmpl.shape)
+
+    t1 = tmpl*(1.0 - mask_t)
+    t2 = smooth_colors(tmpl, input_warp, tmpl_fl[0])
     t2 = t2*mask_t
-    return (t1 + t2), rect, shape, src_rect_shape
+
+    return (t1+t2)
 
 def generateOutput(img):
     cv2.imwrite('temp.jpg', img)
@@ -146,70 +152,53 @@ def get_face_contour_mask(rect_shape, pt_tl, shape):
     cv2.drawContours(mask, [hull], 0, 255 , -1)
     return np.uint8(mask)
 
+def swap_faces_wrap(frame, args):
+    input = args[0]
+    out_ = swap_faces(frame, input)
+    if out_ is None:
+        return None
+    out = generateOutput(out_)
+    return out
+
+def videoize(func, args, src = 0, win_name = "Cam", delim_wait = 1, delim_key = 27):
+    cap = cv2.VideoCapture(src)
+    while(1):
+        ret, frame = cap.read()
+        out = func(frame, args)
+        if out is None:
+            continue
+        cv2.imshow(win_name, out)
+        k = cv2.waitKey(delim_wait)
+
+        if k == delim_key:
+            cv2.destroyAllWindows()
+            cap.release()
+            return
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('-t', '--template_image', help='Template image ( Face template )', required=True)
+    parser.add_argument('-i', '--input_image', help='Input image ( Features are extracted )', required=True)
     parser.add_argument('-p', '--predictor', help='Predictor', required=True)
-    parser.add_argument('-i', '--input_image', help='Input image ( Features are extracted )')
     parser.add_argument('-v', '--video', help='Mode', action='store_true')
+    parser.add_argument('-t', '--template_image', help='Template image ( Face template )')
     parser.add_argument('-o', '--output_image', help='Output image path')
     args = parser.parse_args()
 
-    data_path = args.template_image
-    shape_predictor_path = args.predictor
+    input = cv2.imread(args.input_image)
+    shape_predictor = dlib.shape_predictor(args.predictor)
 
-    shape_predictor = dlib.shape_predictor(shape_predictor_path)
-
-    src = cv2.imread(data_path)
-    out = src.copy()
-
-    # NOTE: Currently not working as expected
     if args.video:
-        cap = cv2.VideoCapture(0)
-        while(1):
-            ret, frame = cap.read()
-            out, rect, shape, src_rect_shape = swap_faces(src, frame)
-
-            if out is None:
-                continue
-            else:
-                out = generateOutput(out)
-                rect_shape = (rect.bottom() - rect.top(), rect.right() - rect.left())
-                scale = (1.0*np.array(rect_shape)/np.array(getRectShape(src_rect_shape)))
-                out_r = cv2.resize(out, None, fx=scale[1], fy=scale[0])
-
-                face_contour_mask = get_face_contour_mask(rect_shape, [rect.left(), rect.top()], shape)
-
-                output = frame.copy()
-
-                cv2.imshow("out_r", out_r)
-                cv2.imshow("mask", 255*face_contour_mask)
-
-                frame_fg = cv2.bitwise_and(out_r, out_r, mask=face_contour_mask)
-                frame_bg = cv2.bitwise_and(
-                    frame[rect.top():rect.bottom(), rect.left():rect.right()],
-                    frame[rect.top():rect.bottom(), rect.left():rect.right()],
-                    mask=(255 - face_contour_mask)
-                    )
-                output[rect.top():rect.bottom(), rect.left():rect.right()] = frame_fg + frame_bg
-
-                cv2.imshow("Cam", output)
-                k = cv2.waitKey(1)
-
-                if k == 27:
-                    cv2.destroyAllWindows()
-                    cap.release()
-                    break
+        videoize(swap_faces_wrap, [input])
     else:
-        if args.input_image is None:
-            print "Target image path missing."
+        if args.template_image is None:
+            print "Template image required."
             sys.exit()
-        target_path = args.input_image
-        dst = cv2.imread(target_path)
-        out_, _, _, rect = swap_faces(src, dst)
-        out[rect.top():rect.bottom(), rect.left():rect.right()] = generateOutput(out_)
-        # cv2.imshow("Output", out)
-        # cv2.waitKey(0)
-        # cv2.destroyAllWindows()
-        if args.output_image is not None:
-            cv2.imwrite(args.output_image, out)
+        tmpl = cv2.imread(args.template_image)
+        out_ = swap_faces(tmpl, input)
+        if out_ is None:
+            print "No faces detected."
+            sys.exit()
+        out = generateOutput(out_)
+        cv2.imshow("out", out)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
