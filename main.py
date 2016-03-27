@@ -24,6 +24,12 @@ OVERLAY_POINTS_IDX = [
 ]
 FACE_ALL_POINTS_IDX = list(np.arange(0, 68))
 
+def getScreenSize():
+    # width, height
+    r = os.popen("xrandr  | grep \* | cut -d' ' -f4").read().strip().split('x')
+    return int(r[0]), int(r[1])
+
+s_w, s_h = getScreenSize()
 face_detector = dlib.get_frontal_face_detector()
 shape_predictor = None
 
@@ -198,11 +204,13 @@ def videoize(func, args, src = 0, win_name = "Cam", delim_wait = 1, delim_key = 
         ret, frame = cap.read()
         # To speed up processing; Almost real-time on my PC
         frame = cv2.resize(frame, dsize=None, fx=0.5, fy=0.5)
+        frame = cv2.flip(frame, 1)
         out = func(frame, args)
         if out is None:
             continue
         out = cv2.resize(out, dsize=None, fx=1.4, fy=1.4)
         cv2.imshow(win_name, out)
+        cv2.moveWindow(win_name, (s_w - out.shape[1])/2, (s_h - out.shape[0])/2)
         k = cv2.waitKey(delim_wait)
 
         if k == delim_key:
@@ -252,5 +260,6 @@ if __name__ == '__main__':
             sys.exit()
         out = np.uint8(out_)
         cv2.imshow("out", out)
+        cv2.moveWindow("out", (s_w - out.shape[1])/2, (s_h - out.shape[0])/2)
         cv2.waitKey(0)
         cv2.destroyAllWindows()
