@@ -22,9 +22,15 @@ OVERLAY_POINTS_IDX = [
     LEFT_EYE_IDX + RIGHT_EYE_IDX + LEFT_EYE_BROW_IDX + RIGHT_EYE_BROW_IDX,
     NOSE_IDX + MOUTH_IDX,
 ]
+ALL_POINTS_IDX = list(np.arange(0, 68))
 
 face_detector = dlib.get_frontal_face_detector()
 shape_predictor = None
+
+def get_facial_landmarks_from_mask(img, pts):
+    rect = cv2.boundingRect(pts)
+    rect = dlib.rectangle(rect[0], rect[1], rect[0] + rect[2], rect[1] + rect[3])
+    return np.matrix([list(pt) for pt in pts]), rect
 
 def get_facial_landmarks(img):
     # No need to upsample
@@ -36,7 +42,7 @@ def get_facial_landmarks(img):
 
     rect = rects[0]
     shape = shape_predictor(img, rect)
-    return np.matrix([[pt.x, pt.y] for pt in shape.parts()]), rect, shape
+    return np.matrix([[pt.x, pt.y] for pt in shape.parts()]), rect
 
 def get_face_mask(img, img_l):
     img = np.zeros(img.shape[:2], dtype = np.float64)
@@ -104,6 +110,40 @@ def warp_image(img, tM, shape):
                    flags=cv2.WARP_INVERSE_MAP)
     return out
 
+# TODO: Modify this method to get a better face contour mask
+def get_contour_mask(dshape, img_fl):
+    mask = np.zeros(dshape)
+    hull = cv2.convexHull(img_fl[ALL_POINTS_IDX])
+    cv2.drawContours(mask, [hull], 0, (1, 1, 1) , -1)
+    return np.uint8(mask)
+
+def mask_on_face(tmpl_, input_, mask_shape):
+    tmpl_fl = get_facial_landmarks(tmpl_)
+    input_fl = get_facial_landmarks_from_mask(input_, mask_shape)
+
+    if tmpl_fl is None or input_fl is None:
+        return None
+
+    tmpl_fl = list(tmpl_fl)
+    input_fl = list(input_fl)
+
+    tmpl = tmpl_
+
+    input = input_[input_fl[1].top():input_fl[1].bottom(), input_fl[1].left():input_fl[1].right()]
+    input_fl[0] -= [input_fl[1].left(), input_fl[1].top()]
+
+    tM = get_tm_opp(tmpl_fl[0][MATCH_POINTS_IDX], input_fl[0][MATCH_POINTS_IDX])
+    mask = get_contour_mask(input.shape, input_fl[0])
+    mask_w = warp_image(mask, tM, tmpl.shape)
+    mask_t = np.max([get_contour_mask(tmpl.shape, tmpl_fl[0]), mask_w], axis = 0)
+    input_warp = warp_image(input, tM, tmpl.shape)
+
+    t1 = tmpl*(1.0 - mask_t)
+    t2 = input_warp
+    t2 = t2*mask_t
+
+    return (t1+t2)
+
 def swap_faces(tmpl_, input_):
     tmpl_fl = get_facial_landmarks(tmpl_)
     input_fl = get_facial_landmarks(input_)
@@ -114,7 +154,7 @@ def swap_faces(tmpl_, input_):
     tmpl_fl = list(tmpl_fl)
     input_fl = list(input_fl)
 
-    # {tmpl, input}_fl : [ landmarks, rect, shape ]
+    # {tmpl, input}_fl : [ landmarks, rect ]
 
     tmpl = tmpl_
 
@@ -135,21 +175,18 @@ def swap_faces(tmpl_, input_):
 
     return (t1+t2)
 
-# TODO: Modify this method to get a better face contour mask
-def get_face_contour_mask(rect_shape, pt_tl, shape):
-    mask = np.zeros(rect_shape)
-    lm = np.matrix([[pt.x - pt_tl[0], pt.y - pt_tl[1]] for pt in shape.parts()])
-    temp1 = RIGHT_EYE_BROW_IDX
-    temp1.reverse()
-    temp2 = LEFT_EYE_BROW_IDX
-    temp2.reverse()
-    hull = lm[JAW_IDX + temp2 + temp1]
-    cv2.drawContours(mask, [hull], 0, 255 , -1)
-    return np.uint8(mask)
-
 def swap_faces_wrap(frame, args):
     input = args[0]
     out_ = swap_faces(frame, input)
+    if out_ is None:
+        return None
+    out = np.uint8(out_)
+    return out
+
+def mask_on_face_wrap(frame, args):
+    input = args[0]
+    mask_shape = args[1]
+    out_ = swap_faces(frame, input, mask_shape)
     if out_ is None:
         return None
     out = np.uint8(out_)
@@ -175,24 +212,41 @@ def videoize(func, args, src = 0, win_name = "Cam", delim_wait = 1, delim_key = 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('-i', '--input_image', help='Input image ( Features are extracted )', required=True)
+    parser.add_argument('-i', '--input_image', help='Input image ( Features are extracted, if mask give mask_data )', required=True)
     parser.add_argument('-p', '--predictor', help='Predictor', required=True)
     parser.add_argument('-v', '--video', help='Mode', action='store_true')
     parser.add_argument('-t', '--template_image', help='Template image ( Face template )')
+    parser.add_argument('-m', '--mask_data', help='Mask data')
     parser.add_argument('-o', '--output_image', help='Output image path')
     args = parser.parse_args()
 
     input = cv2.imread(args.input_image)
     shape_predictor = dlib.shape_predictor(args.predictor)
+    mask_shape = None
+
+    isMask = False
+
+    if args.mask_data is not None:
+        mask_shape = np.load(args.mask_data)
+        isMask = True
+        if mask_shape is None or not len(mask_shape) == 68:
+            print "Invalid mask shape."
+            sys.exit()
 
     if args.video:
-        videoize(swap_faces_wrap, [input])
+        if isMask:
+            videoize(mask_on_face_wrap, [input, mask_shape])
+        else:
+            videoize(swap_faces_wrap, [input])
     else:
         if args.template_image is None:
             print "Template image required."
             sys.exit()
         tmpl = cv2.imread(args.template_image)
-        out_ = swap_faces(tmpl, input)
+        if isMask:
+            out_ = mask_on_face(tmpl, input, mask_shape)
+        else:
+            out_ = swap_faces(tmpl, input)
         if out_ is None:
             print "No faces detected."
             sys.exit()
