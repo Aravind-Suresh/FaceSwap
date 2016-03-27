@@ -22,7 +22,7 @@ OVERLAY_POINTS_IDX = [
     LEFT_EYE_IDX + RIGHT_EYE_IDX + LEFT_EYE_BROW_IDX + RIGHT_EYE_BROW_IDX,
     NOSE_IDX + MOUTH_IDX,
 ]
-ALL_POINTS_IDX = list(np.arange(0, 68))
+FACE_ALL_POINTS_IDX = list(np.arange(0, 68))
 
 face_detector = dlib.get_frontal_face_detector()
 shape_predictor = None
@@ -113,7 +113,7 @@ def warp_image(img, tM, shape):
 # TODO: Modify this method to get a better face contour mask
 def get_contour_mask(dshape, img_fl):
     mask = np.zeros(dshape)
-    hull = cv2.convexHull(img_fl[ALL_POINTS_IDX])
+    hull = cv2.convexHull(img_fl)
     cv2.drawContours(mask, [hull], 0, (1, 1, 1) , -1)
     return np.uint8(mask)
 
@@ -229,7 +229,7 @@ if __name__ == '__main__':
     if args.mask_data is not None:
         mask_shape = np.load(args.mask_data)
         isMask = True
-        if mask_shape is None or not len(mask_shape) == 68:
+        if mask_shape is None or len(mask_shape) < 68:
             print "Invalid mask shape."
             sys.exit()
 

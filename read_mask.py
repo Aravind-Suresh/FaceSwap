@@ -37,4 +37,5 @@ if __name__ == '__main__':
     cv2.imshow("Mark points", input)
     cv2.setMouseCallback("Mark points", markPoint)
     cv2.waitKey(0)
+    print data
     cv2.destroyAllWindows()
