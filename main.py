@@ -186,7 +186,7 @@ def swap_faces_wrap(frame, args):
 def mask_on_face_wrap(frame, args):
     input = args[0]
     mask_shape = args[1]
-    out_ = swap_faces(frame, input, mask_shape)
+    out_ = mask_on_face(frame, input, mask_shape)
     if out_ is None:
         return None
     out = np.uint8(out_)
