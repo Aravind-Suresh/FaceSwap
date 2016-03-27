@@ -134,12 +134,6 @@ def swap_faces(tmpl_, input_):
 
     return (t1+t2)
 
-def generateOutput(img):
-    cv2.imwrite('temp.jpg', img)
-    out = cv2.imread('temp.jpg')
-    os.remove('temp.jpg')
-    return out
-
 # TODO: Modify this method to get a better face contour mask
 def get_face_contour_mask(rect_shape, pt_tl, shape):
     mask = np.zeros(rect_shape)
@@ -157,7 +151,7 @@ def swap_faces_wrap(frame, args):
     out_ = swap_faces(frame, input)
     if out_ is None:
         return None
-    out = generateOutput(out_)
+    out = np.uint8(out_)
     return out
 
 def videoize(func, args, src = 0, win_name = "Cam", delim_wait = 1, delim_key = 27):
@@ -198,7 +192,7 @@ if __name__ == '__main__':
         if out_ is None:
             print "No faces detected."
             sys.exit()
-        out = generateOutput(out_)
+        out = np.uint8(out_)
         cv2.imshow("out", out)
         cv2.waitKey(0)
         cv2.destroyAllWindows()
