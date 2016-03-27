@@ -27,7 +27,8 @@ face_detector = dlib.get_frontal_face_detector()
 shape_predictor = None
 
 def get_facial_landmarks(img):
-    rects = face_detector(img, 1)
+    # No need to upsample
+    rects = face_detector(img, 0)
 
     if len(rects) == 0:
         print "No faces"
@@ -158,9 +159,12 @@ def videoize(func, args, src = 0, win_name = "Cam", delim_wait = 1, delim_key = 
     cap = cv2.VideoCapture(src)
     while(1):
         ret, frame = cap.read()
+        # To speed up processing; Almost real-time on my PC
+        frame = cv2.resize(frame, dsize=None, fx=0.5, fy=0.5)
         out = func(frame, args)
         if out is None:
             continue
+        out = cv2.resize(out, dsize=None, fx=1.4, fy=1.4)
         cv2.imshow(win_name, out)
         k = cv2.waitKey(delim_wait)
 
