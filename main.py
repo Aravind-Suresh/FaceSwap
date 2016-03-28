@@ -77,12 +77,15 @@ def smooth_colors(src, dst, src_l):
     return (np.float64(dst) * np.float64(src_blur)/np.float64(dst_blur))
 
 def get_tm_opp(pts1, pts2):
+    # Transformation matrix - ( Translation + Scaling + Rotation )
+    # using Procuster analysis
     pts1 = np.float64(pts1)
     pts2 = np.float64(pts2)
 
     m1 = np.mean(pts1, axis = 0)
     m2 = np.mean(pts2, axis = 0)
 
+    # Removing translation
     pts1 -= m1
     pts2 -= m2
 
@@ -90,11 +93,13 @@ def get_tm_opp(pts1, pts2):
     std2 = np.std(pts2)
     std_r = std2/std1
 
+    # Removing scaling
     pts1 /= std1
     pts2 /= std2
 
     U, S, V = np.linalg.svd(np.transpose(pts1) * pts2)
 
+    # Finding the rotation matrix
     R = np.transpose(U * V)
 
     return np.vstack([np.hstack((std_r * R,
@@ -108,12 +113,15 @@ def toRoi(rect):
 
 def warp_image(img, tM, shape):
     out = np.zeros(shape, dtype=img.dtype)
-    cv2.warpAffine(img,
-                   tM[:2],
-                   (shape[1], shape[0]),
-                   dst=out,
-                   borderMode=cv2.BORDER_TRANSPARENT,
-                   flags=cv2.WARP_INVERSE_MAP)
+    # cv2.warpAffine(img,
+    #                tM[:2],
+    #                (shape[1], shape[0]),
+    #                dst=out,
+    #                borderMode=cv2.BORDER_TRANSPARENT,
+    #                flags=cv2.WARP_INVERSE_MAP)
+    cv2.warpPerspective(img, tM, (shape[1], shape[0]), dst=out,
+                        borderMode=cv2.BORDER_TRANSPARENT,
+                        flags=cv2.WARP_INVERSE_MAP)
     return out
 
 # TODO: Modify this method to get a better face contour mask
@@ -123,6 +131,7 @@ def get_contour_mask(dshape, img_fl):
     cv2.drawContours(mask, [hull], 0, (1, 1, 1) , -1)
     return np.uint8(mask)
 
+# Orients input_ mask onto tmpl_ face
 def mask_on_face(tmpl_, input_, mask_shape):
     tmpl_fl = get_facial_landmarks(tmpl_)
     input_fl = get_facial_landmarks_from_mask(input_, mask_shape)
@@ -150,7 +159,8 @@ def mask_on_face(tmpl_, input_, mask_shape):
 
     return (t1+t2)
 
-def swap_faces(tmpl_, input_):
+# Orients input_ face onto tmpl_ face
+def orient_faces(tmpl_, input_):
     tmpl_fl = get_facial_landmarks(tmpl_)
     input_fl = get_facial_landmarks(input_)
 
@@ -181,14 +191,16 @@ def swap_faces(tmpl_, input_):
 
     return (t1+t2)
 
-def swap_faces_wrap(frame, args):
+# A wrapper of orient_faces for videoize method
+def orient_faces_wrap(frame, args):
     input = args[0]
-    out_ = swap_faces(frame, input)
+    out_ = orient_faces(frame, input)
     if out_ is None:
         return None
     out = np.uint8(out_)
     return out
 
+# A wrapper of mask_on_face for videoize method
 def mask_on_face_wrap(frame, args):
     input = args[0]
     mask_shape = args[1]
@@ -198,6 +210,8 @@ def mask_on_face_wrap(frame, args):
     out = np.uint8(out_)
     return out
 
+# A routine to extend single-image proc methods to
+# successive frames read from Camera
 def videoize(func, args, src = 0, win_name = "Cam", delim_wait = 1, delim_key = 27):
     cap = cv2.VideoCapture(src)
     while(1):
@@ -245,7 +259,7 @@ if __name__ == '__main__':
         if isMask:
             videoize(mask_on_face_wrap, [input, mask_shape])
         else:
-            videoize(swap_faces_wrap, [input])
+            videoize(orient_faces_wrap, [input])
     else:
         if args.template_image is None:
             print "Template image required."
@@ -254,7 +268,7 @@ if __name__ == '__main__':
         if isMask:
             out_ = mask_on_face(tmpl, input, mask_shape)
         else:
-            out_ = swap_faces(tmpl, input)
+            out_ = orient_faces(tmpl, input)
         if out_ is None:
             print "No faces detected."
             sys.exit()
